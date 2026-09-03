@@ -157,19 +157,21 @@ function injectCalendarUi(panel) {
     let finalUrl = null;
     let customUrl = null;
 
-    if (selectedUrlType === "meet") {
-      if (!meetUrl) {
-        statusElem.textContent = "Meet URL を取得できません。";
-        return;
+    if (enabled) {
+      if (selectedUrlType === "meet") {
+        if (!meetUrl) {
+          statusElem.textContent = "Meet URL を取得できません。";
+          return;
+        }
+        finalUrl = meetUrl;
+      } else {
+        customUrl = customUrlInput.value.trim();
+        if (!customUrl) {
+          statusElem.textContent = "その他URLを入力してください。";
+          return;
+        }
+        finalUrl = customUrl;
       }
-      finalUrl = meetUrl;
-    } else {
-      customUrl = customUrlInput.value.trim();
-      if (!customUrl) {
-        statusElem.textContent = "その他URLを入力してください。";
-        return;
-      }
-      finalUrl = customUrl;
     }
 
     try {
@@ -193,7 +195,18 @@ function injectCalendarUi(panel) {
         };
         chrome.storage.sync.set({ meetAutoJoinEvents: map }, () => {
           if (chrome.runtime.lastError || !chrome.runtime?.id) return;
-          statusElem.textContent = "自動オープン設定を保存しました。"+map[eventId].offsetMinutes+"分前 opentype:"+map[eventId].urlType+" "+(map[eventId].urlType=="other"? map[eventId].customUrl : map[eventId].meetUrl);
+          if (!enabled) {
+            statusElem.textContent = "自動オープン設定を保存しました。無効";
+          } else {
+            statusElem.textContent = "自動オープン設定を保存しました。"+map[eventId].offsetMinutes+"分前 opentype:"+map[eventId].urlType+" "+(map[eventId].urlType=="other"? map[eventId].customUrl : map[eventId].meetUrl);
+          }
+          statusElem.style.transition = "";
+          statusElem.style.opacity = "1";
+          clearTimeout(statusElem._fadeTimer);
+          statusElem._fadeTimer = setTimeout(() => {
+            statusElem.style.transition = "opacity 0.5s ease-out";
+            statusElem.style.opacity = "0";
+          }, 3000);
           chrome.runtime.sendMessage({ type: "refresh-alarms" });
         });
       });
