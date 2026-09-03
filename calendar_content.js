@@ -3,10 +3,8 @@
 // カレンダー画面のイベント詳細パネルを監視して UI を差し込む
 function observeEventDetails() {
   const observer = new MutationObserver(() => {
-    // 拡張コンテキストが無効なら何もしない
     if (!chrome.runtime?.id) return;
 
-    // イベント詳細パネルっぽい要素を探す（要セレクタ調整）
     const panel = document.querySelector('[role="dialog"] div[data-eventid]');
     if (!panel) return;
 
@@ -19,7 +17,6 @@ function observeEventDetails() {
 }
 
 function injectCalendarUi(panel) {
-  // ここでも念のためチェック
   if (!chrome.runtime?.id) return;
 
   const container = document.createElement("div");
@@ -40,6 +37,7 @@ function injectCalendarUi(panel) {
       <span>何分前に URL を開く:</span>
       <select id="meet-auto-join-offset" style="margin-left:4px; font-size:12px;">
         <option value="0">開始時刻</option>
+        <option value="0.5">30秒前</option>
         <option value="1">1分前</option>
         <option value="2">2分前</option>
         <option value="3">3分前</option>
@@ -72,6 +70,14 @@ function injectCalendarUi(panel) {
       >
     </div>
 
+    <div id="meet-auto-join-extra-urls-section" style="margin-bottom:4px;">
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <span>追加URL（最大5件）:</span>
+        <button id="meet-auto-join-add-url" type="button" style="font-size:11px; padding:1px 6px;">＋ 追加</button>
+      </div>
+      <div id="meet-auto-join-extra-urls-list"></div>
+    </div>
+
     <div id="meet-auto-join-calendar-status"></div>
   `;
 
@@ -80,13 +86,12 @@ function injectCalendarUi(panel) {
   const flagCheckbox = container.querySelector("#meet-auto-join-flag");
   const offsetSelect = container.querySelector("#meet-auto-join-offset");
   const statusElem = container.querySelector("#meet-auto-join-calendar-status");
-  const urlTypeRadios = container.querySelectorAll(
-    'input[name="meet-auto-join-url-type"]'
-  );
+  const urlTypeRadios = container.querySelectorAll('input[name="meet-auto-join-url-type"]');
   const customUrlRow = container.querySelector("#meet-auto-join-custom-url-row");
   const customUrlInput = container.querySelector("#meet-auto-join-custom-url");
+  const extraUrlsList = container.querySelector("#meet-auto-join-extra-urls-list");
+  const addUrlButton = container.querySelector("#meet-auto-join-add-url");
 
-  // イベントID と Meet URL を取得（要セレクタ確認）
   const eventId = extractEventIdFromPanel(panel);
   const meetUrl = extractMeetUrlFromPanel(panel);
 
@@ -104,57 +109,51 @@ function injectCalendarUi(panel) {
     customUrlRow.style.display = selected === "other" ? "block" : "none";
   }
 
-  urlTypeRadios.forEach(radio => {
-    radio.addEventListener("change", () => {
-      updateCustomUrlVisibility();
+  function updateAddButtonState() {
+    const count = extraUrlsList.querySelectorAll(".meet-auto-join-extra-row").length;
+    addUrlButton.disabled = count >= 5;
+  }
+
+  function createExtraUrlRow(value = "") {
+    const row = document.createElement("div");
+    row.className = "meet-auto-join-extra-row";
+    row.style.cssText = "display:flex; align-items:center; gap:4px; margin-bottom:4px;";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "https://...";
+    input.value = value;
+    input.style.cssText = "font-size:12px; flex:1;";
+    input.addEventListener("change", saveSettings);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "削除";
+    delBtn.style.cssText = "font-size:11px; padding:1px 6px;";
+    delBtn.addEventListener("click", () => {
+      row.remove();
+      updateAddButtonState();
       saveSettings();
     });
-  });
 
-  // 既存設定のロード
-  try {
-    chrome.storage.sync.get(["meetAutoJoinEvents"], (res) => {
-      if (chrome.runtime.lastError || !chrome.runtime?.id) {
-        return;
-      }
-
-      const map = res.meetAutoJoinEvents || {};
-      const entry = map[eventId];
-      if (entry) {
-        flagCheckbox.checked = entry.enabled;
-        offsetSelect.value = String(entry.offsetMinutes ?? 1);
-
-        const urlType = entry.urlType || "meet";
-        urlTypeRadios.forEach(r => {
-          r.checked = (r.value === urlType);
-        });
-
-        if (entry.customUrl) {
-          customUrlInput.value = entry.customUrl;
-        }
-      }
-      updateCustomUrlVisibility();
-    });
-  } catch (e) {
-    return;
+    row.appendChild(input);
+    row.appendChild(delBtn);
+    return row;
   }
 
   function saveSettings() {
     if (!chrome.runtime?.id) return;
 
     const enabled = flagCheckbox.checked;
-    const offsetMinutes = parseInt(offsetSelect.value, 10);
-    const selectedUrlType =
-      Array.from(urlTypeRadios).find(r => r.checked)?.value || "meet";
+    const offsetMinutes = parseFloat(offsetSelect.value);
+    const selectedUrlType = Array.from(urlTypeRadios).find(r => r.checked)?.value || "meet";
 
-    // イベント開始日時を DOM から取る（ここも要セレクタ調整）
     const startDate = extractEventStartDate(panel);
     if (!startDate) {
       statusElem.textContent = "開始時刻を取得できません。";
       return;
     }
 
-    // URLの決定
     let finalUrl = null;
     let customUrl = null;
 
@@ -175,11 +174,12 @@ function injectCalendarUi(panel) {
 
     try {
       chrome.storage.sync.get(["meetAutoJoinEvents"], (res) => {
-        if (chrome.runtime.lastError || !chrome.runtime?.id) {
-          return;
-        }
+        if (chrome.runtime.lastError || !chrome.runtime?.id) return;
 
         const map = res.meetAutoJoinEvents || {};
+        const extraUrls = Array.from(
+          extraUrlsList.querySelectorAll(".meet-auto-join-extra-row input")
+        ).map(i => i.value.trim()).filter(v => v);
 
         map[eventId] = {
           enabled,
@@ -188,14 +188,12 @@ function injectCalendarUi(panel) {
           meetUrl,
           customUrl,
           targetUrl: finalUrl,
+          extraUrls,
           startTimeISO: startDate.toISOString()
         };
         chrome.storage.sync.set({ meetAutoJoinEvents: map }, () => {
-          if (chrome.runtime.lastError || !chrome.runtime?.id) {
-            return;
-          }
+          if (chrome.runtime.lastError || !chrome.runtime?.id) return;
           statusElem.textContent = "自動オープン設定を保存しました。"+map[eventId].offsetMinutes+"分前 opentype:"+map[eventId].urlType+" "+(map[eventId].urlType=="other"? map[eventId].customUrl : map[eventId].meetUrl);
-          // background にアラーム再設定を依頼
           chrome.runtime.sendMessage({ type: "refresh-alarms" });
         });
       });
@@ -204,12 +202,53 @@ function injectCalendarUi(panel) {
     }
   }
 
+  urlTypeRadios.forEach(radio => {
+    radio.addEventListener("change", () => {
+      updateCustomUrlVisibility();
+      saveSettings();
+    });
+  });
+
   flagCheckbox.addEventListener("change", saveSettings);
   offsetSelect.addEventListener("change", saveSettings);
   customUrlInput.addEventListener("change", saveSettings);
-}
 
-// 以下の 3 つは元のまま
+  addUrlButton.addEventListener("click", () => {
+    const count = extraUrlsList.querySelectorAll(".meet-auto-join-extra-row").length;
+    if (count >= 5) return;
+    extraUrlsList.appendChild(createExtraUrlRow());
+    updateAddButtonState();
+  });
+
+  // 既存設定のロード
+  try {
+    chrome.storage.sync.get(["meetAutoJoinEvents"], (res) => {
+      if (chrome.runtime.lastError || !chrome.runtime?.id) return;
+
+      const map = res.meetAutoJoinEvents || {};
+      const entry = map[eventId];
+      if (entry) {
+        flagCheckbox.checked = entry.enabled;
+        offsetSelect.value = String(entry.offsetMinutes ?? 1);
+
+        const urlType = entry.urlType || "meet";
+        urlTypeRadios.forEach(r => { r.checked = (r.value === urlType); });
+
+        if (entry.customUrl) customUrlInput.value = entry.customUrl;
+
+        if (Array.isArray(entry.extraUrls)) {
+          entry.extraUrls.forEach(url => {
+            extraUrlsList.appendChild(createExtraUrlRow(url));
+          });
+          updateAddButtonState();
+        }
+      }
+      updateCustomUrlVisibility();
+    });
+  } catch (e) {
+    return;
+  }
+}
 
 function extractEventIdFromPanel(panel) {
   const el = panel.closest("[data-eventid]");
@@ -272,9 +311,7 @@ function decorateEventTiles() {
 
   try {
     chrome.storage.sync.get(["meetAutoJoinEvents"], (res) => {
-      if (chrome.runtime.lastError || !chrome.runtime?.id) {
-        return;
-      }
+      if (chrome.runtime.lastError || !chrome.runtime?.id) return;
 
       const map = res.meetAutoJoinEvents || {};
       const eventIds = Object.keys(map);

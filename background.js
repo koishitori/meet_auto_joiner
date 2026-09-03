@@ -51,11 +51,16 @@ async function refreshAlarms() {
     const offsetMinutes = entry.offsetMinutes ?? 1;
     const triggerTime = start - offsetMinutes * 60 * 1000;
 
-    if (triggerTime <= now) continue; // 過去のものはスキップ
+    if (triggerTime <= now) continue;
 
-    await chrome.alarms.create(`meet-auto-join-${eventId}`, {
-      when: triggerTime
-    });
+    await chrome.alarms.create(`meet-auto-join-${eventId}`, { when: triggerTime });
+
+    if (Array.isArray(entry.extraUrls)) {
+      entry.extraUrls.forEach(async (url, i) => {
+        if (!url) return;
+        await chrome.alarms.create(`meet-auto-join-${eventId}-extra-${i}`, { when: triggerTime });
+      });
+    }
   }
 }
 
@@ -69,6 +74,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // アラーム発火時に URL を開く
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (!alarm.name.startsWith("meet-auto-join-")) return;
+
+  // extra URL アラームの処理
+  const extraMatch = alarm.name.match(/^meet-auto-join-(.+)-extra-(\d+)$/);
+  if (extraMatch) {
+    const eventId = extraMatch[1];
+    const idx = parseInt(extraMatch[2], 10);
+    const res = await chrome.storage.sync.get(["meetAutoJoinEvents"]);
+    const entry = (res.meetAutoJoinEvents || {})[eventId];
+    if (!entry || !entry.enabled || !Array.isArray(entry.extraUrls)) return;
+    const url = entry.extraUrls[idx];
+    if (url) await ensureMeetWindow(url);
+    return;
+  }
+
   const eventId = alarm.name.replace("meet-auto-join-", "");
 
   const res = await chrome.storage.sync.get(["meetAutoJoinEvents"]);
