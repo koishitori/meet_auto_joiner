@@ -78,7 +78,7 @@ function injectCalendarUi(panel) {
       <div id="meet-auto-join-extra-urls-list"></div>
     </div>
 
-    <div id="meet-auto-join-calendar-status"></div>
+    <div id="meet-auto-join-calendar-status" style="overflow:hidden; max-height:2em; transition: none;"></div>
   `;
 
   panel.appendChild(container);
@@ -202,10 +202,12 @@ function injectCalendarUi(panel) {
           }
           statusElem.style.transition = "";
           statusElem.style.opacity = "1";
+          statusElem.style.maxHeight = "2em";
           clearTimeout(statusElem._fadeTimer);
           statusElem._fadeTimer = setTimeout(() => {
-            statusElem.style.transition = "opacity 0.5s ease-out";
+            statusElem.style.transition = "opacity 0.5s ease-out, max-height 0.5s ease-out";
             statusElem.style.opacity = "0";
+            statusElem.style.maxHeight = "0";
           }, 3000);
           chrome.runtime.sendMessage({ type: "refresh-alarms" });
         });
