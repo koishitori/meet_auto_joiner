@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Meet Auto Joiner v0.2.4",
-  "version": "0.2.3.4",
+  "name": "Meet Auto Joiner v0.3.1",
+  "version": "0.3.1",
   "description": "Google Calendar のイベントから Meet を指定時刻に自動オープンし、待機画面で自動参加する。",
   "permissions": [
     "scripting",
